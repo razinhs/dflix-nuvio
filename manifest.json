@@ -1,0 +1,22 @@
+{
+  "name": "DFLIX Cloud Provider",
+  "version": "1.4.2",
+  "description": "Watch DFLIX movies and episodes directly in Nuvio",
+  "author": "Razin",
+  "scrapers": [
+    {
+      "id": "dflix-cloud",
+      "name": "DFLIX Cloud",
+      "description": "Direct DFLIX streams with quality, size, codec, and language details",
+      "version": "1.4.2",
+      "filename": "dflix.js",
+      "supportedTypes": ["movie", "tv"],
+      "enabled": true,
+      "hasSettings": false,
+      "contentLanguage": ["en"],
+      "formats": ["direct"],
+      "supportsExternalPlayer": true,
+      "limited": false
+    }
+  ]
+}

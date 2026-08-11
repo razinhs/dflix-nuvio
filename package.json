@@ -1,0 +1,12 @@
+{
+  "name": "dflix-nuvio-plugin",
+  "version": "1.4.2",
+  "private": true,
+  "description": "DFLIX playback provider for Nuvio",
+  "scripts": {
+    "test": "node --test test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
