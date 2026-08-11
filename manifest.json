@@ -1,7 +1,7 @@
 {
-  "name": "DFLIX Cloud Provider",
-  "version": "1.4.3",
-  "description": "Watch DFLIX movies and episodes directly in Nuvio",
+  "name": "DFLIX + CircleFTP Providers",
+  "version": "1.5.0",
+  "description": "Watch DFLIX and CircleFTP movies and episodes directly in Nuvio",
   "author": "Razin",
   "scrapers": [
     {
@@ -14,6 +14,20 @@
       "enabled": true,
       "hasSettings": false,
       "contentLanguage": ["en"],
+      "formats": ["direct"],
+      "supportsExternalPlayer": true,
+      "limited": false
+    },
+    {
+      "id": "circleftp",
+      "name": "CircleFTP",
+      "description": "Direct CircleFTP movie and episode streams matched by exact title, year, and media type",
+      "version": "1.0.0",
+      "filename": "circleftp.js",
+      "supportedTypes": ["movie", "tv"],
+      "enabled": true,
+      "hasSettings": false,
+      "contentLanguage": [],
       "formats": ["direct"],
       "supportsExternalPlayer": true,
       "limited": false
