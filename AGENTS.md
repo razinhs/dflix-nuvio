@@ -19,11 +19,10 @@ Update this section whenever publishing a release.
 
 | Component | Version | Baseline |
 |---|---:|---|
-| Repository manifest/package | `1.5.0` | CircleFTP provider release |
+| Repository manifest/package | `1.5.1` | Bounded CircleFTP size enrichment |
 | DFLIX scraper | `1.4.3` | IMDb normalization supported |
-| CircleFTP scraper | `1.0.0` | Initial CircleFTP provider |
+| CircleFTP scraper | `1.0.1` | Initial provider plus bounded size enrichment |
 | Metadata Worker package | `0.2.0` | TMDB and IMDb normalization |
-| Published commit at time of writing | `cbcb07eeeae3a0d2b2ed9518572e9daed0ea07cd` | `[verified] feat: add CircleFTP provider` |
 | Branch | `main` | Published directly by this small repository |
 | Remote | `git@github.com:razinhs/dflix-nuvio.git` | GitHub |
 
@@ -317,7 +316,7 @@ Important semantics:
 - `metaData` is usually a plot synopsis, not an external-ID object.
 - `quality` and `title` are free-form strings that may contain resolution, source, codec, and audio text such as `1080p BluRay Hin+Eng`.
 - `year` may be one year (`1999`) or a range (`2008-2013`). Matching uses the starting year.
-- No dependable structured TMDB ID, IMDb ID, codec, file size, rating, cast, director, or audio-language array was observed.
+- No dependable structured TMDB ID, IMDb ID, codec, file size, rating, cast, director, or audio-language array was observed. The provider derives optional size only from a valid one-byte range response, never from CircleFTP JSON.
 
 Supported content shapes:
 
@@ -376,7 +375,9 @@ Series:
 9. Revalidate detail ID, title, year, and type.
 10. Extract all valid movie variants or only the requested TV season/episode.
 11. Validate every untrusted media URL.
-12. Deduplicate URLs and return at most 100 unique streams.
+12. Deduplicate URLs and retain at most 100 unique streams.
+13. During only the first five seconds of the invocation, probe at most the first two streams with `Range: bytes=0-0`.
+14. Accept size only from HTTP `206` plus strict `Content-Range: bytes 0-0/<positive-safe-integer>`; otherwise preserve the stream with `size: null`.
 
 ### CircleFTP title matching
 
@@ -435,7 +436,9 @@ Current CircleFTP limits:
 MAX_CANDIDATES = 4
 MAX_LINKS_PER_POST / cumulative output cap = 100
 MAX_REQUEST_LAUNCH_MS = 25000
-Detail concurrency = 1
+MAX_SIZE_PROBES = 2
+SIZE_PROBE_LAUNCH_MS = 5000
+Detail and size-probe concurrency = 1
 ```
 
 The launch deadline is not an HTTP cancellation mechanism. It prevents a new request from starting too late, leaving room for one possible native 30-second request under Nuvio’s approximately 60-second invocation ceiling.
@@ -531,6 +534,7 @@ CircleFTP tests cover:
 - direct URL allowlist adversaries;
 - cumulative 100-result ceiling;
 - deduplication and multi-video content;
+- two-probe size cap, strict `206 Content-Range` parsing, five-second launch window, and no stream loss on enrichment failure;
 - graceful source failures.
 
 Worker tests cover:
@@ -649,6 +653,7 @@ Never infer that a numeric source ID is TMDB. Never proxy full media through the
 - CircleFTP has no dependable TMDB/IMDb mapping. Title/year/type matching is conservative but cannot equal DFLIX’s ID-level certainty.
 - CircleFTP uses HTTP and may be ISP/private-network restricted.
 - CircleFTP quality/audio/codec details are free-form text rather than stable structured fields.
+- CircleFTP size requires an additional one-byte range request. It is best-effort, limited to two streams and a five-second launch window; an already-launched native request can still wait for Nuvio's HTTP timeout.
 - DFLIX detail extraction depends on Next.js Flight serialization and can break after a frontend deployment.
 - No local `qjs` executable is assumed; compatibility is primarily protected through constrained coding style, Nuvio source audits, and Node tests. When possible, use Nuvio’s actual **Test Scraper** facility before release.
 - Provider diagnostic results use direct-stream-shaped objects because Nuvio lacks a dedicated diagnostic contract.

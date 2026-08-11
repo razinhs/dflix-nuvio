@@ -40,11 +40,12 @@ CircleFTP results can include:
 
 - multiple exact movie variants, such as English and dual-audio copies;
 - the requested season and episode from matching series;
-- quality, container, and release/audio text supplied by CircleFTP.
+- quality, container, and release/audio text supplied by CircleFTP;
+- best-effort file size for the first two streams when the file server quickly honors a one-byte range request.
 
 CircleFTP's public player API does not expose TMDB or IMDb IDs. The provider therefore matches the canonical TMDB title (and original title when different), release year, and movie/series type. It validates those fields again on the detail response and rejects malformed, mismatched, non-video, or non-CircleFTP links. This is stricter than browsing CircleFTP's H5AI year folders, but it cannot provide the same ID-level certainty as DFLIX.
 
-The provider uses CircleFTP's player API rather than recursively crawling `index.circleftp.net`, `index2.circleftp.net`, and the many numbered FTP hosts. It considers at most four exact candidates, returns at most 100 unique streams, performs detail requests sequentially for Nuvio's synchronous native fetch bridge, and only launches requests during a 25-second budget that reserves time under Nuvio's 60-second invocation limit.
+The provider uses CircleFTP's player API rather than recursively crawling `index.circleftp.net`, `index2.circleftp.net`, and the many numbered FTP hosts. It considers at most four exact candidates, returns at most 100 unique streams, performs detail requests sequentially for Nuvio's synchronous native fetch bridge, and only launches source-resolution requests during a 25-second budget that reserves time under Nuvio's 60-second invocation limit. After resolving playable links, it may issue `Range: bytes=0-0` for at most the first two streams and only during the first five seconds of the invocation. Size lookup is optional: missing, slow, malformed, or non-range responses never remove a playable stream.
 
 ## Privacy and network behavior
 

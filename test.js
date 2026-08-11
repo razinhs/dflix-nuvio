@@ -12,9 +12,10 @@ test('repository manifest defines independently toggleable DFLIX and CircleFTP s
   const manifest = JSON.parse(fs.readFileSync(path.join(project, 'manifest.json'), 'utf8'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(project, 'package.json'), 'utf8'));
   assert.equal(manifest.name, 'DFLIX + CircleFTP Providers');
-  assert.equal(manifest.version, '1.5.0');
+  assert.equal(manifest.version, '1.5.1');
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.scrapers.length, 2);
+  assert.deepEqual(manifest.scrapers.map((scraper) => scraper.version), ['1.4.3', '1.0.1']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.filename), ['dflix.js', 'circleftp.js']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.id), ['dflix-cloud', 'circleftp']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.supportedTypes), [

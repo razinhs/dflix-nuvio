@@ -10,6 +10,17 @@ function jsonResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data };
 }
 
+function rangeResponse(status, headers = {}) {
+  const normalized = Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value])
+  );
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name) => normalized[String(name).toLowerCase()] || null }
+  };
+}
+
 async function withFetch(mock, run) {
   const realFetch = global.fetch;
   global.fetch = mock;
@@ -76,6 +87,112 @@ test('CircleFTP resolves every exact movie variant by canonical title, year, and
   assert.ok(seen.includes(`${CIRCLE_API}/posts/71943`));
   assert.ok(!seen.includes(`${CIRCLE_API}/posts/71939`));
   assert.ok(!seen.includes(`${CIRCLE_API}/posts/69637`));
+});
+
+test('CircleFTP enriches at most two unique streams from one-byte range metadata', async () => {
+  const links = [
+    'http://ftp1.circleftp.net/FILE/Movies/One.mkv',
+    'http://ftp2.circleftp.net/FILE/Movies/Two.mp4',
+    'http://ftp3.circleftp.net/FILE/Movies/Three.mkv'
+  ];
+  const rangeCalls = [];
+  await withFetch(async (url, options = {}) => {
+    const value = String(url);
+    if (value === `${METADATA_BASE}/v1/metadata/movie/603`) {
+      return jsonResponse({ id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999 });
+    }
+    if (value.includes('/posts?searchTerm=')) {
+      return jsonResponse({ posts: [{ id: 8000, name: 'The Matrix', year: '1999', type: 'multiVideo' }] });
+    }
+    if (value === `${CIRCLE_API}/posts/8000`) {
+      return jsonResponse({
+        id: 8000,
+        name: 'The Matrix',
+        year: '1999',
+        type: 'multiVideo',
+        content: links.map((link, index) => ({ title: `Variant ${index + 1}`, link }))
+      });
+    }
+    if (links.includes(value)) {
+      rangeCalls.push({ value, options });
+      const total = value.endsWith('One.mkv') ? '2147483648' : '3758096384';
+      return rangeResponse(206, { 'Content-Range': `bytes 0-0/${total}` });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  }, async ({ getStreams }) => {
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams.map((stream) => stream.size), ['2.00 GB', '3.50 GB', null]);
+  });
+  assert.equal(rangeCalls.length, 2);
+  assert.deepEqual(rangeCalls.map((call) => call.value), links.slice(0, 2));
+  assert.ok(rangeCalls.every((call) => call.options.headers.Range === 'bytes=0-0'));
+});
+
+test('CircleFTP size enrichment is best-effort and never drops playable streams', async () => {
+  const links = [
+    'http://ftp1.circleftp.net/FILE/Movies/One.mkv',
+    'http://ftp2.circleftp.net/FILE/Movies/Two.mkv'
+  ];
+  await withFetch(async (url) => {
+    const value = String(url);
+    if (value === `${METADATA_BASE}/v1/metadata/movie/603`) {
+      return jsonResponse({ id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999 });
+    }
+    if (value.includes('/posts?searchTerm=')) {
+      return jsonResponse({ posts: [{ id: 8001, name: 'The Matrix', year: '1999', type: 'multiVideo' }] });
+    }
+    if (value === `${CIRCLE_API}/posts/8001`) {
+      return jsonResponse({
+        id: 8001,
+        name: 'The Matrix',
+        year: '1999',
+        type: 'multiVideo',
+        content: links.map((link) => ({ link }))
+      });
+    }
+    if (value === links[0]) return rangeResponse(200, { 'Content-Length': '999999999' });
+    if (value === links[1]) throw new Error('range probe failed');
+    throw new Error(`Unexpected URL: ${url}`);
+  }, async ({ getStreams }) => {
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams.map((stream) => stream.url), links);
+    assert.deepEqual(streams.map((stream) => stream.size), [null, null]);
+  });
+});
+
+test('CircleFTP skips size probes after the short enrichment launch window', async () => {
+  const link = 'http://ftp1.circleftp.net/FILE/Movies/One.mkv';
+  let now = 0;
+  let rangeCalls = 0;
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    await withFetch(async (url) => {
+      const value = String(url);
+      if (value === `${METADATA_BASE}/v1/metadata/movie/603`) {
+        return jsonResponse({ id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999 });
+      }
+      if (value.includes('/posts?searchTerm=')) {
+        return jsonResponse({ posts: [{ id: 8002, name: 'The Matrix', year: '1999', type: 'singleVideo' }] });
+      }
+      if (value === `${CIRCLE_API}/posts/8002`) {
+        now = 5000;
+        return jsonResponse({ id: 8002, name: 'The Matrix', year: '1999', type: 'singleVideo', content: link });
+      }
+      if (value === link) {
+        rangeCalls += 1;
+        return rangeResponse(206, { 'Content-Range': 'bytes 0-0/2147483648' });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }, async ({ getStreams }) => {
+      const streams = await getStreams('603', 'movie', null, null);
+      assert.equal(streams.length, 1);
+      assert.equal(streams[0].size, null);
+    });
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(rangeCalls, 0);
 });
 
 test('CircleFTP selects the requested episode from an exact series and season', async () => {

@@ -5,6 +5,8 @@ var TMDB_METADATA_BASE = 'https://dflix-tmdb-metadata.razin.workers.dev';
 var MAX_CANDIDATES = 4;
 var MAX_LINKS_PER_POST = 100;
 var MAX_REQUEST_LAUNCH_MS = 25000;
+var MAX_SIZE_PROBES = 2;
+var SIZE_PROBE_LAUNCH_MS = 5000;
 
 async function fetchJson(url) {
   var response = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -80,6 +82,46 @@ function validVideoUrl(value) {
 function containerFromUrl(value) {
   var match = String(value || '').match(/\.([a-z0-9]+)(?:\?[^#]*)?$/i);
   return match ? match[1].toUpperCase() : null;
+}
+
+function humanSize(value) {
+  var bytes = Number(value);
+  if (!Number.isSafeInteger(bytes) || bytes < 1) return null;
+  var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  var index = 0;
+  while (bytes >= 1024 && index < units.length - 1) {
+    bytes /= 1024;
+    index += 1;
+  }
+  return (index === 0 ? Math.round(bytes) : bytes.toFixed(2)) + ' ' + units[index];
+}
+
+async function probeSize(url) {
+  var response = await fetch(url, {
+    headers: { Accept: '*/*', Range: 'bytes=0-0' }
+  });
+  if (!response || response.status !== 206 || !response.headers ||
+      typeof response.headers.get !== 'function') return null;
+  if (response.url && !validVideoUrl(response.url)) return null;
+  var contentRange = response.headers.get('content-range');
+  if (typeof contentRange !== 'string') return null;
+  var match = contentRange.trim().match(/^bytes\s+0-0\/([1-9]\d*)$/i);
+  return match ? humanSize(Number(match[1])) : null;
+}
+
+async function enrichSizes(results, launchDeadlineAt) {
+  var probes = 0;
+  for (var i = 0; i < results.length && probes < MAX_SIZE_PROBES; i += 1) {
+    if (Date.now() >= launchDeadlineAt) break;
+    probes += 1;
+    try {
+      var size = await probeSize(results[i].url);
+      if (size) results[i].size = size;
+    } catch (_) {
+      /* Size metadata is optional; preserve the playable stream. */
+    }
+  }
+  return results;
 }
 
 async function getMetadata(identifier, mediaType) {
@@ -225,7 +267,9 @@ async function loadDetails(candidates, metadata, mediaType, deadlineAt) {
 
 async function getStreams(identifier, mediaType, season, episode) {
   try {
-    var deadlineAt = Date.now() + MAX_REQUEST_LAUNCH_MS;
+    var startedAt = Date.now();
+    var deadlineAt = startedAt + MAX_REQUEST_LAUNCH_MS;
+    var sizeLaunchDeadlineAt = startedAt + SIZE_PROBE_LAUNCH_MS;
     if (mediaType !== 'movie' && mediaType !== 'tv') throw new Error('Invalid media type');
     if (mediaType === 'tv' && (!Number.isSafeInteger(season) || season < 0 ||
         !Number.isSafeInteger(episode) || episode < 1)) {
@@ -259,7 +303,7 @@ async function getStreams(identifier, mediaType, season, episode) {
         }
       }
     }
-    return results;
+    return enrichSizes(results, sizeLaunchDeadlineAt);
   } catch (error) {
     var message = error && error.message ? error.message : String(error);
     console.error('CircleFTP scraper:', message);
