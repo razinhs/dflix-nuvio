@@ -4,7 +4,7 @@ Watch DFLIX movies and episodes from the normal Nuvio search and playback screen
 
 You do not need a TMDB account, API key, plugin settings, or a computer running in the background.
 
-To identify the right title, the provider sends only the media type and numeric TMDB ID to its metadata service. It does not send account details or an API key.
+To identify the right title, the provider sends only the media type and the TMDB or IMDb title ID supplied by Nuvio to its metadata service. It does not send account details or an API key.
 
 ## Install
 

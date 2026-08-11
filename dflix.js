@@ -126,15 +126,23 @@ function normalizedTitle(value) {
 
 async function getTmdbMetadata(tmdbId, mediaType) {
   var wantedKind = mediaType === 'movie' ? 'movie' : 'tv';
+  var requestedId = String(tmdbId).trim().toLowerCase();
+  var isImdbId = /^tt\d{7,10}$/.test(requestedId);
   var metadata = await fetchJson(
-    TMDB_METADATA_BASE + '/v1/metadata/' + wantedKind + '/' + encodeURIComponent(String(tmdbId))
+    TMDB_METADATA_BASE + '/v1/metadata/' + wantedKind + '/' + encodeURIComponent(requestedId)
   );
   var title = String(metadata.title || '').trim();
   var originalTitle = String(metadata.originalTitle || title).trim();
-  if (Number(metadata.id) !== Number(tmdbId) || metadata.type !== wantedKind || !title) {
+  var canonicalTmdbId = Number(metadata.id);
+  var identityMatches = isImdbId
+    ? String(metadata.externalId || '').toLowerCase() === requestedId
+    : canonicalTmdbId === Number(requestedId);
+  if (!Number.isSafeInteger(canonicalTmdbId) || canonicalTmdbId < 1 ||
+      !identityMatches || metadata.type !== wantedKind || !title) {
     throw new Error('TMDB metadata service returned invalid data for ' + tmdbId);
   }
   return {
+    tmdbId: canonicalTmdbId,
     title: title,
     originalTitle: originalTitle || title,
     year: Number(metadata.year) || null
@@ -144,6 +152,7 @@ async function getTmdbMetadata(tmdbId, mediaType) {
 async function resolveDflixTitle(tmdbId, mediaType) {
   var wantedKind = mediaType === 'movie' ? 'movie' : 'tv';
   var metadata = await getTmdbMetadata(tmdbId, wantedKind);
+  var canonicalTmdbId = metadata.tmdbId;
   var queries = [metadata.title];
   if (normalizedTitle(metadata.originalTitle) !== normalizedTitle(metadata.title)) {
     queries.push(metadata.originalTitle);
@@ -173,10 +182,10 @@ async function resolveDflixTitle(tmdbId, mediaType) {
     seenIds[key] = true;
     return true;
   }).sort(function (left, right) {
-    var leftScore = Number(Number(left.tmdbId) === Number(tmdbId)) * 4 +
+    var leftScore = Number(Number(left.tmdbId) === canonicalTmdbId) * 4 +
       Number(expectedTitles.indexOf(normalizedTitle(left.title)) !== -1) +
       Number(metadata.year && Number(left.year) === metadata.year);
-    var rightScore = Number(Number(right.tmdbId) === Number(tmdbId)) * 4 +
+    var rightScore = Number(Number(right.tmdbId) === canonicalTmdbId) * 4 +
       Number(expectedTitles.indexOf(normalizedTitle(right.title)) !== -1) +
       Number(metadata.year && Number(right.year) === metadata.year);
     return rightScore - leftScore;
@@ -186,7 +195,7 @@ async function resolveDflixTitle(tmdbId, mediaType) {
 
   try {
     var firstDetail = await getDflixDetail(candidates[0].id);
-    if (Number(firstDetail.title.tmdbId) === Number(tmdbId)) return firstDetail;
+    if (Number(firstDetail.title.tmdbId) === canonicalTmdbId) return firstDetail;
   } catch (_) {
     /* Continue with lower-ranked candidates. */
   }
@@ -199,7 +208,7 @@ async function resolveDflixTitle(tmdbId, mediaType) {
     }
   }));
   for (var detailIndex = 0; detailIndex < fallbackDetails.length; detailIndex += 1) {
-    if (fallbackDetails[detailIndex] && Number(fallbackDetails[detailIndex].title.tmdbId) === Number(tmdbId)) {
+    if (fallbackDetails[detailIndex] && Number(fallbackDetails[detailIndex].title.tmdbId) === canonicalTmdbId) {
       return fallbackDetails[detailIndex];
     }
   }

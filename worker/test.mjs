@@ -48,6 +48,203 @@ test('returns normalized movie metadata without exposing the TMDB token', async 
   assert.doesNotMatch(JSON.stringify(body), new RegExp(TOKEN));
 });
 
+test('resolves an IMDb movie ID to normalized canonical TMDB metadata', async () => {
+  const { handleRequest } = await import('./src/index.mjs');
+  let upstreamRequest;
+  const dependencies = {
+    fetch: async (request) => {
+      upstreamRequest = request;
+      return new Response(JSON.stringify({
+        movie_results: [{
+          id: 634649,
+          title: 'Spider-Man: No Way Home',
+          original_title: 'Spider-Man: No Way Home',
+          release_date: '2021-12-15'
+        }],
+        tv_results: []
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    cache: { match: async () => null, put: async () => {} }
+  };
+  const env = {
+    TMDB_READ_ACCESS_TOKEN: TOKEN,
+    TMDB_RATE_LIMITER: { limit: async () => ({ success: true }) }
+  };
+
+  const response = await handleRequest(
+    new Request('https://worker.example/v1/metadata/movie/tt10872600'),
+    env,
+    context(),
+    dependencies
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body, {
+    id: 634649,
+    externalId: 'tt10872600',
+    type: 'movie',
+    title: 'Spider-Man: No Way Home',
+    originalTitle: 'Spider-Man: No Way Home',
+    year: 2021
+  });
+  assert.equal(
+    upstreamRequest.url,
+    'https://api.themoviedb.org/3/find/tt10872600?external_source=imdb_id&language=en-US'
+  );
+  assert.equal(upstreamRequest.headers.get('authorization'), `Bearer ${TOKEN}`);
+});
+
+test('resolves an IMDb series ID from the TV result namespace', async () => {
+  const { handleRequest } = await import('./src/index.mjs');
+  let upstreamRequest;
+  const dependencies = {
+    fetch: async (request) => {
+      upstreamRequest = request;
+      return new Response(JSON.stringify({
+        movie_results: [],
+        tv_results: [{
+          id: 2316,
+          name: 'The Office',
+          original_name: 'The Office',
+          first_air_date: '2005-03-24'
+        }]
+      }), { status: 200 });
+    },
+    cache: { match: async () => null, put: async () => {} }
+  };
+  const env = {
+    TMDB_READ_ACCESS_TOKEN: TOKEN,
+    TMDB_RATE_LIMITER: { limit: async () => ({ success: true }) }
+  };
+
+  const response = await handleRequest(
+    new Request('https://worker.example/v1/metadata/tv/tt0386676'),
+    env,
+    context(),
+    dependencies
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    id: 2316,
+    externalId: 'tt0386676',
+    type: 'tv',
+    title: 'The Office',
+    originalTitle: 'The Office',
+    year: 2005
+  });
+  assert.equal(
+    upstreamRequest.url,
+    'https://api.themoviedb.org/3/find/tt0386676?external_source=imdb_id&language=en-US'
+  );
+});
+
+test('rejects malformed IMDb IDs before contacting TMDB', async () => {
+  const { handleRequest } = await import('./src/index.mjs');
+  let calls = 0;
+  const dependencies = {
+    fetch: async () => { calls += 1; throw new Error('must not fetch'); },
+    cache: { match: async () => null, put: async () => {} }
+  };
+  const env = { TMDB_READ_ACCESS_TOKEN: TOKEN };
+
+  for (const id of ['tt123', 'tt123abc', 'nm0000138', 'TT10872600']) {
+    const response = await handleRequest(
+      new Request(`https://worker.example/v1/metadata/movie/${id}`),
+      env,
+      context(),
+      dependencies
+    );
+    assert.equal(response.status, 404, id);
+  }
+  assert.equal(calls, 0);
+});
+
+test('rejects invalid canonical TMDB IDs returned by IMDb lookup before caching', async () => {
+  const { handleRequest } = await import('./src/index.mjs');
+
+  for (const invalidId of [-1, 0, 1.5, 2147483648, Number.MAX_SAFE_INTEGER + 1]) {
+    let writes = 0;
+    const dependencies = {
+      fetch: async () => new Response(JSON.stringify({
+        movie_results: [{
+          id: invalidId,
+          title: 'Invalid',
+          original_title: 'Invalid',
+          release_date: '2021-01-01'
+        }]
+      }), { status: 200 }),
+      cache: {
+        match: async () => null,
+        put: async () => { writes += 1; }
+      }
+    };
+    const env = {
+      TMDB_READ_ACCESS_TOKEN: TOKEN,
+      TMDB_RATE_LIMITER: { limit: async () => ({ success: true }) }
+    };
+
+    const response = await handleRequest(
+      new Request('https://worker.example/v1/metadata/movie/tt10872600'),
+      env,
+      context(),
+      dependencies
+    );
+    assert.equal(response.status, 502, String(invalidId));
+    assert.equal(writes, 0, String(invalidId));
+  }
+});
+
+test('ignores poisoned cached IMDb metadata and refreshes it from TMDB', async () => {
+  const { handleRequest } = await import('./src/index.mjs');
+  let fetches = 0;
+  const dependencies = {
+    fetch: async () => {
+      fetches += 1;
+      return new Response(JSON.stringify({
+        movie_results: [{
+          id: 634649,
+          title: 'Spider-Man: No Way Home',
+          original_title: 'Spider-Man: No Way Home',
+          release_date: '2021-12-15'
+        }]
+      }), { status: 200 });
+    },
+    cache: {
+      match: async () => new Response(JSON.stringify({
+        id: 999,
+        externalId: 'tt0000000',
+        type: 'tv',
+        title: 'Poison'
+      }), { status: 200 }),
+      put: async () => {}
+    }
+  };
+  const env = {
+    TMDB_READ_ACCESS_TOKEN: TOKEN,
+    TMDB_RATE_LIMITER: { limit: async () => ({ success: true }) }
+  };
+
+  const response = await handleRequest(
+    new Request('https://worker.example/v1/metadata/movie/tt10872600'),
+    env,
+    context(),
+    dependencies
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(fetches, 1);
+  assert.deepEqual(await response.json(), {
+    id: 634649,
+    externalId: 'tt10872600',
+    type: 'movie',
+    title: 'Spider-Man: No Way Home',
+    originalTitle: 'Spider-Man: No Way Home',
+    year: 2021
+  });
+});
+
 test('rejects unsupported methods, paths, query strings, and invalid IDs before calling upstream', async () => {
   const { handleRequest } = await import('./src/index.mjs');
   let calls = 0;
@@ -75,7 +272,13 @@ test('serves cached metadata without calling TMDB or consuming the rate limit', 
   const { handleRequest } = await import('./src/index.mjs');
   let fetchCalls = 0;
   let rateLimitCalls = 0;
-  const cached = new Response(JSON.stringify({ id: 603, type: 'movie', title: 'The Matrix', year: 1999 }), {
+  const cached = new Response(JSON.stringify({
+    id: 603,
+    type: 'movie',
+    title: 'The Matrix',
+    originalTitle: 'The Matrix',
+    year: 1999
+  }), {
     status: 200,
     headers: { 'content-type': 'application/json', 'x-dflix-cache': 'HIT' }
   });

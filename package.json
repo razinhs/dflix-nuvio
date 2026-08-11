@@ -1,6 +1,6 @@
 {
   "name": "dflix-nuvio-plugin",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "private": true,
   "description": "DFLIX playback provider for Nuvio",
   "scripts": {

@@ -21,9 +21,24 @@ function validTmdbDate(value) {
     date.getUTCDate() === day;
 }
 
+function validTmdbId(value) {
+  return Number.isSafeInteger(value) && value >= 1 && value <= 2147483647;
+}
+
+function validNormalizedMetadata(value, type, requestedId, isImdbId) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!validTmdbId(value.id) || value.type !== type) return false;
+  if (typeof value.title !== 'string' || !value.title.trim()) return false;
+  if (typeof value.originalTitle !== 'string' || !value.originalTitle.trim()) return false;
+  if (value.year !== null && (!Number.isInteger(value.year) || value.year < 1000 || value.year > 9999)) return false;
+  return isImdbId
+    ? value.externalId === requestedId
+    : value.id === Number(requestedId);
+}
+
 function normalizeMetadata(metadata, type, requestedId) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
-  if (!Number.isInteger(metadata.id) || metadata.id !== requestedId) return null;
+  if (!validTmdbId(metadata.id) || metadata.id !== requestedId) return null;
 
   const rawTitle = type === 'movie' ? metadata.title : metadata.name;
   const rawOriginalTitle = type === 'movie' ? metadata.original_title : metadata.original_name;
@@ -54,12 +69,14 @@ export async function handleRequest(request, env, ctx, dependencies = {}) {
   }
   if (url.search) return json({ error: 'Query parameters are not supported' }, 400);
 
-  const match = /^\/v1\/metadata\/(movie|tv)\/(\d{1,10})$/.exec(url.pathname);
+  const match = /^\/v1\/metadata\/(movie|tv)\/(\d{1,10}|tt\d{7,10})$/.exec(url.pathname);
   if (!match) return json({ error: 'Not found' }, 404);
 
   const type = match[1];
-  const id = Number(match[2]);
-  if (!Number.isSafeInteger(id) || id < 1 || id > 2147483647) {
+  const requestedId = match[2].toLowerCase();
+  const isImdbId = requestedId.startsWith('tt');
+  const id = isImdbId ? null : Number(requestedId);
+  if (!isImdbId && (!Number.isSafeInteger(id) || id < 1 || id > 2147483647)) {
     return json({ error: 'Invalid TMDB ID' }, 400);
   }
 
@@ -70,7 +87,14 @@ export async function handleRequest(request, env, ctx, dependencies = {}) {
   } catch (_) {
     return json({ error: 'Metadata service temporarily unavailable' }, 503);
   }
-  if (cached) return cached;
+  if (cached) {
+    try {
+      const cachedMetadata = await cached.clone().json();
+      if (validNormalizedMetadata(cachedMetadata, type, requestedId, isImdbId)) return cached;
+    } catch (_) {
+      /* Ignore malformed cache entries and refresh them from TMDB. */
+    }
+  }
 
   if (!env.TMDB_READ_ACCESS_TOKEN) {
     return json({ error: 'Metadata service is not configured' }, 503);
@@ -88,7 +112,10 @@ export async function handleRequest(request, env, ctx, dependencies = {}) {
     return json({ error: 'Rate limit exceeded' }, 429, { 'retry-after': '60' });
   }
 
-  const upstreamRequest = new Request(`${TMDB_API_BASE}/${type}/${id}?language=en-US`, {
+  const upstreamUrl = isImdbId
+    ? `${TMDB_API_BASE}/find/${requestedId}?external_source=imdb_id&language=en-US`
+    : `${TMDB_API_BASE}/${type}/${id}?language=en-US`;
+  const upstreamRequest = new Request(upstreamUrl, {
     headers: {
       accept: 'application/json',
       authorization: `Bearer ${env.TMDB_READ_ACCESS_TOKEN}`
@@ -110,7 +137,22 @@ export async function handleRequest(request, env, ctx, dependencies = {}) {
   } catch (_) {
     return json({ error: 'Metadata provider returned invalid data' }, 502);
   }
-  const result = normalizeMetadata(metadata, type, id);
+  let result;
+  if (isImdbId) {
+    const candidates = type === 'movie' ? metadata?.movie_results : metadata?.tv_results;
+    if (Array.isArray(candidates)) {
+      for (const candidate of candidates) {
+        const candidateId = candidate?.id;
+        const normalized = normalizeMetadata(candidate, type, candidateId);
+        if (normalized) {
+          result = { ...normalized, externalId: requestedId };
+          break;
+        }
+      }
+    }
+  } else {
+    result = normalizeMetadata(metadata, type, id);
+  }
   if (!result) return json({ error: 'Metadata provider returned invalid data' }, 502);
   const cacheControl = 'public, max-age=86400, s-maxage=2592000';
   const cachedResponse = json(result, 200, {

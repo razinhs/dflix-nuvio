@@ -12,7 +12,7 @@ test('repository manifest defines one enabled DFLIX JavaScript scraper', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(project, 'manifest.json'), 'utf8'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(project, 'package.json'), 'utf8'));
   assert.equal(manifest.name, 'DFLIX Cloud Provider');
-  assert.equal(manifest.version, '1.4.2');
+  assert.equal(manifest.version, '1.4.3');
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.scrapers.length, 1);
   assert.equal(manifest.scrapers[0].filename, 'dflix.js');
@@ -89,6 +89,87 @@ test('local plugin uses TMDB metadata to find an exact DFLIX movie', async () =>
     assert.ok(seen.includes('https://dflix.live/title/998'));
     assert.ok(seen.includes('https://dflix.live/title/999'));
     assert.ok(seen.includes('https://dflix.live/title/4592'));
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('local plugin resolves an IMDb movie ID to canonical TMDB identity', async () => {
+  const realFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (url) => {
+    seen.push(String(url));
+    if (String(url) === 'https://dflix-tmdb-metadata.razin.workers.dev/v1/metadata/movie/tt10872600') {
+      return { ok: true, json: async () => ({
+        id: 634649,
+        externalId: 'tt10872600',
+        type: 'movie',
+        title: 'Spider-Man: No Way Home',
+        originalTitle: 'Spider-Man: No Way Home',
+        year: 2021
+      }) };
+    }
+    if (String(url).startsWith('https://dflix.live/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 25001, kind: 'movie', title: 'Spider-Man: No Way Home', year: 2021 }]
+      }) };
+    }
+    if (String(url) === 'https://dflix.live/title/25001') {
+      const files = [{ id: 35001, titleId: 25001, container: 'mkv', quality: '1080p' }];
+      const payload = `0:${JSON.stringify({ title: { id: 25001, kind: 'movie', tmdbId: 634649, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('tt10872600', 'movie', null, null);
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].url, 'https://dflix.live/api/stream/35001.mkv');
+    assert.ok(seen.includes('https://dflix-tmdb-metadata.razin.workers.dev/v1/metadata/movie/tt10872600'));
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('local plugin resolves an IMDb series ID before selecting the episode', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url).endsWith('/v1/metadata/tv/tt0386676')) {
+      return { ok: true, json: async () => ({
+        id: 2316,
+        externalId: 'tt0386676',
+        type: 'tv',
+        title: 'The Office',
+        originalTitle: 'The Office',
+        year: 2005
+      }) };
+    }
+    if (String(url).includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 14003, kind: 'tv', title: 'The Office', year: 2005 }]
+      }) };
+    }
+    if (String(url) === 'https://dflix.live/title/14003') {
+      const files = [
+        { id: 127480, titleId: 14003, container: 'mkv', season: 1, episode: 1 },
+        { id: 127481, titleId: 14003, container: 'mkv', season: 1, episode: 2 }
+      ];
+      const payload = `0:${JSON.stringify({ title: { id: 14003, kind: 'tv', tmdbId: 2316, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('tt0386676', 'tv', 1, 1);
+    assert.deepEqual(streams.map((stream) => stream.url), [
+      'https://dflix.live/api/stream/127480.mkv'
+    ]);
   } finally {
     global.fetch = realFetch;
   }
