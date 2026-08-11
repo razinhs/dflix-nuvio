@@ -1,6 +1,6 @@
 {
   "name": "dflix-nuvio-plugin",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "description": "DFLIX and CircleFTP playback providers for Nuvio",
   "scripts": {

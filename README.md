@@ -32,7 +32,7 @@ DFLIX results can include:
 - container and video codec;
 - audio language when DFLIX provides it.
 
-DFLIX exposes TMDB identity. The provider verifies the exact canonical TMDB ID before returning a stream, so a different title with the same name is rejected.
+DFLIX exposes TMDB identity. The provider verifies the exact canonical TMDB ID before returning a stream, so a different title with the same name is rejected. It searches the localized title first and verifies its strongest candidate before trying the original title. Detail data uses DFLIX's smaller RSC response first, with the full HTML page as a bounded compatibility fallback. Candidate requests are sequential, limited to four, and only launched during a 25-second budget. Returned files are strictly validated, deduplicated, quality-sorted, and capped at 100.
 
 ### CircleFTP
 

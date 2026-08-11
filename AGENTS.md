@@ -19,8 +19,8 @@ Update this section whenever publishing a release.
 
 | Component | Version | Baseline |
 |---|---:|---|
-| Repository manifest/package | `1.5.1` | Bounded CircleFTP size enrichment |
-| DFLIX scraper | `1.4.3` | IMDb normalization supported |
+| Repository manifest/package | `1.5.2` | DFLIX RSC-first performance and hardening release |
+| DFLIX scraper | `1.4.4` | Bounded RSC-first resolution, strict schemas, sorted output |
 | CircleFTP scraper | `1.0.1` | Initial provider plus bounded size enrichment |
 | Metadata Worker package | `0.2.0` | TMDB and IMDb normalization |
 | Branch | `main` | Published directly by this small repository |
@@ -222,38 +222,58 @@ https://dflix.live
 Observed production interfaces used by the provider:
 
 ```text
-GET /api/search?q=<title>&limit=60
-GET /title/<internal-title-id>
+GET /api/search?q=<title>&limit=20
+GET /title/<internal-title-id> with RSC: 1 and Accept: text/x-component
+GET /title/<internal-title-id> as bounded HTML compatibility fallback
 Direct playback: /api/stream/<file-id>.<container>
 ```
 
+`GET /api/title/<internal-title-id>` is smaller JSON, but it omits the canonical `tmdbId`, `titleId`, structured file size, and audio-language fields required by this provider's identity and presentation contract. Do not replace RSC with that endpoint unless its schema changes and exact identity is restored.
+
 ### Resolution algorithm
 
-1. Normalize the TMDB/IMDb input through the metadata Worker.
-2. Search DFLIX by canonical title and, when different, original title.
-3. Rank source candidates by:
-   - exact TMDB ID first;
-   - exact normalized title;
-   - matching year.
-4. Consider at most four candidates.
-5. Fetch title pages and decode their Next.js Flight/RSC payload.
-6. Select the title object whose internal ID matches the requested detail page.
-7. Require the DFLIX title’s TMDB ID to equal the canonical TMDB ID.
-8. Require file lists to belong to that exact DFLIX title ID.
-9. For TV, select exact numeric season and episode.
-10. Return every unique matching file with quality, container, codec, size, and audio language when available.
+1. Validate canonical TMDB/IMDb grammar, exact media type, and safe-integer TV coordinates before network I/O.
+2. Normalize the TMDB/IMDb input through the metadata Worker.
+3. Search the localized title with `limit=20`.
+4. Rank candidates using Unicode-preserving exact title, year, and media type.
+5. Fetch and verify the strongest localized candidate immediately.
+6. Return immediately when its internal ID, kind, and canonical TMDB ID verify.
+7. Only after that path fails, search the original title when different.
+8. Process remaining details sequentially and stop at the first verified identity.
+9. Consider no more than four cumulative details and launch no new source request after 25 seconds.
+10. Request raw RSC detail first; if it is unavailable or malformed and budget remains, try the full HTML page once.
+11. Decode raw RSC directly or concatenate decoded `self.__next_f.push` chunks from HTML.
+12. Require file lists to belong to the exact DFLIX title ID.
+13. For TV, select the exact numeric season and episode.
+14. Strictly validate file IDs, ownership, container, coordinates, sizes, and bounded optional display text.
+15. Deduplicate, normalize codecs, sort highest quality first, and return at most 100 streams.
+
+### DFLIX bounds
+
+```text
+SEARCH_LIMIT = 20
+MAX_CANDIDATES / cumulative detail attempts = 4
+MAX_OUTPUT_STREAMS = 100
+MAX_REQUEST_LAUNCH_MS = 25000
+Detail concurrency = 1
+RSC-to-HTML fallbacks per attempted detail = at most 1
+```
+
+The deadline prevents late requests from launching; it cannot abort a native request already waiting inside Nuvio's fetch bridge.
 
 ### DFLIX parsing cautions
 
-DFLIX title details are embedded in Next.js Flight data rather than a stable first-party detail JSON endpoint. The current parser:
+DFLIX title details are exposed through undocumented Next.js Flight/RSC serialization rather than a stable identity-complete detail JSON endpoint. The provider requests raw RSC first because it is materially smaller than full HTML while retaining `tmdbId`, `titleId`, sizes, languages, and complete file arrays. The current parser:
 
-- extracts `self.__next_f.push([1, "..."])` chunks;
-- concatenates decoded chunks;
+- sends `RSC: 1` with `Accept: text/x-component`;
+- parses raw RSC directly when present;
+- falls back once to ordinary title HTML only when RSC fails and the launch budget remains;
+- extracts and concatenates `self.__next_f.push([1, "..."])` chunks from HTML;
 - finds JSON after `"title":` and `"files":` markers;
 - uses a string-aware balanced-bracket scanner rather than regexing nested JSON;
-- revalidates title IDs and TMDB identity.
+- revalidates internal title ID, kind, canonical TMDB ID, and file ownership.
 
-Do not replace this with a broad regex over nested JSON. Keep unrelated Flight title/file objects from contaminating results. Fixture-driven tests are mandatory for parser changes.
+Do not use `Next-Router-Prefetch: 1`: the observed prefetch response is smaller but omits title identity and files. Do not replace this with a broad regex over nested JSON. Keep unrelated Flight title/file objects from contaminating results. Fixture-driven tests are mandatory for parser changes.
 
 ## 8. CircleFTP provider
 
@@ -510,15 +530,16 @@ node --experimental-test-coverage --test test.js circleftp.test.js
 
 DFLIX tests cover:
 
-- manifest independence;
-- exact TMDB movie/TV resolution;
-- IMDb-to-canonical-TMDB identity;
-- Flight payload isolation;
-- title/file ID ownership;
-- every movie/episode variant;
-- bounded candidate work and partial failures;
-- no client credentials;
-- visible diagnostics.
+- manifest independence and version alignment;
+- exact TMDB movie/TV and IMDb-to-canonical-TMDB identity;
+- localized fast path and original-title fallback ordering;
+- `limit=20`, four-detail cap, sequential short-circuiting, and 25-second launch deadline;
+- Unicode-preserving candidate ranking;
+- strict caller, search, detail, and file schemas without coercion;
+- raw RSC parsing, one bounded HTML fallback, and deadline suppression of late fallback;
+- Flight payload isolation and title/file ID ownership;
+- every movie/episode variant, deduplication, codec normalization, quality sorting, and 100-stream cap;
+- partial failures, no client credentials, and visible diagnostics.
 
 CircleFTP tests cover:
 
@@ -654,7 +675,7 @@ Never infer that a numeric source ID is TMDB. Never proxy full media through the
 - CircleFTP uses HTTP and may be ISP/private-network restricted.
 - CircleFTP quality/audio/codec details are free-form text rather than stable structured fields.
 - CircleFTP size requires an additional one-byte range request. It is best-effort, limited to two streams and a five-second launch window; an already-launched native request can still wait for Nuvio's HTTP timeout.
-- DFLIX detail extraction depends on Next.js Flight serialization and can break after a frontend deployment.
+- DFLIX detail extraction depends on undocumented Next.js Flight/RSC serialization and can break after a frontend deployment. Raw RSC is preferred for speed; one budgeted HTML fallback preserves compatibility.
 - No local `qjs` executable is assumed; compatibility is primarily protected through constrained coding style, Nuvio source audits, and Node tests. When possible, use Nuvio’s actual **Test Scraper** facility before release.
 - Provider diagnostic results use direct-stream-shaped objects because Nuvio lacks a dedicated diagnostic contract.
 - Upstream services may change routes or schemas without notice. Fail closed rather than guessing.

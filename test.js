@@ -12,10 +12,10 @@ test('repository manifest defines independently toggleable DFLIX and CircleFTP s
   const manifest = JSON.parse(fs.readFileSync(path.join(project, 'manifest.json'), 'utf8'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(project, 'package.json'), 'utf8'));
   assert.equal(manifest.name, 'DFLIX + CircleFTP Providers');
-  assert.equal(manifest.version, '1.5.1');
+  assert.equal(manifest.version, '1.5.2');
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.scrapers.length, 2);
-  assert.deepEqual(manifest.scrapers.map((scraper) => scraper.version), ['1.4.3', '1.0.1']);
+  assert.deepEqual(manifest.scrapers.map((scraper) => scraper.version), ['1.4.4', '1.0.1']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.filename), ['dflix.js', 'circleftp.js']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.id), ['dflix-cloud', 'circleftp']);
   assert.deepEqual(manifest.scrapers.map((scraper) => scraper.supportedTypes), [
@@ -73,7 +73,7 @@ test('local plugin uses TMDB metadata to find an exact DFLIX movie', async () =>
       return { ok: true, text: async () => html };
     }
     if (String(url) === 'https://dflix.live/title/4592') {
-      const payload = '0:{"title":{"id":4592,"tmdbId":603},"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]}';
+      const payload = '0:{"title":{"id":4592,"kind":"movie","tmdbId":603},"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]}';
       const html = `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>`;
       return { ok: true, text: async () => html };
     }
@@ -194,7 +194,7 @@ test('DFLIX detail parsing ignores unrelated Flight title and files objects', as
     }
     if (String(url) === 'https://dflix.live/title/4592') {
       const unrelated = '0:{"title":{"id":77,"tmdbId":77,"files":[{"id":770,"titleId":77,"container":"mp4"}]},"files":[{"id":770,"titleId":77,"container":"mp4"}]}';
-      const wanted = '1:{"title":{"id":4592,"tmdbId":603,"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]},"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]}';
+      const wanted = '1:{"title":{"id":4592,"kind":"movie","tmdbId":603,"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]},"files":[{"id":4599,"titleId":4592,"container":"mp4","quality":"1080p"}]}';
       const html = `<script>self.__next_f.push([1,${JSON.stringify(unrelated)}])</script>` +
         `<script>self.__next_f.push([1,${JSON.stringify(wanted)}])</script>`;
       return { ok: true, text: async () => html };
@@ -287,7 +287,7 @@ test('DFLIX detail parsing skips unrelated empty file arrays', async () => {
     }
     if (String(url) === 'https://dflix.live/title/4592') {
       const unrelated = '0:{"files":[]}';
-      const wanted = '1:{"title":{"id":4592,"tmdbId":603,"files":[]},"files":[{"id":4599,"titleId":4592,"container":"mp4"}]}';
+      const wanted = '1:{"title":{"id":4592,"kind":"movie","tmdbId":603,"files":[]},"files":[{"id":4599,"titleId":4592,"container":"mp4"}]}';
       const html = `<script>self.__next_f.push([1,${JSON.stringify(unrelated)}])</script>` +
         `<script>self.__next_f.push([1,${JSON.stringify(wanted)}])</script>`;
       return { ok: true, text: async () => html };
@@ -323,7 +323,7 @@ test('movie results include every DFLIX file option', async () => {
         { id: 4599, titleId: 4592, container: 'mp4', quality: '1080p', size: 2000 },
         { id: 4600, titleId: 4592, container: 'mkv', quality: '720p', size: 1000, audioLang: 'eng' }
       ];
-      const payload = `0:${JSON.stringify({ title: { id: 4592, tmdbId: 603, files }, files })}`;
+      const payload = `0:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}`;
       return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
     }
     throw new Error(`Unexpected URL: ${url}`);
@@ -358,7 +358,7 @@ test('local plugin uses TMDB metadata to resolve an exact series episode', async
       return { ok: true, json: async () => ({ results: [{ id: 30497, kind: 'tv', title: 'Cheers', year: 1982 }] }) };
     }
     if (String(url) === 'https://dflix.live/title/30497') {
-      const payload = '0:{"title":{"id":30497,"tmdbId":141},"files":[{"id":286098,"titleId":30497,"container":"mkv","season":1,"episode":1,"audioLang":"eng"}]}';
+      const payload = '0:{"title":{"id":30497,"kind":"tv","tmdbId":141},"files":[{"id":286098,"titleId":30497,"container":"mkv","season":1,"episode":1,"audioLang":"eng"}]}';
       const html = `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>`;
       return { ok: true, text: async () => html };
     }
@@ -397,7 +397,7 @@ test('episode results include every matching DFLIX file option', async () => {
         { id: 386098, titleId: 30497, container: 'mp4', quality: '1080p', season: 1, episode: 1 },
         { id: 286099, titleId: 30497, container: 'mkv', quality: '720p', season: 1, episode: 2 }
       ];
-      const payload = `0:${JSON.stringify({ title: { id: 30497, tmdbId: 141, files }, files })}`;
+      const payload = `0:${JSON.stringify({ title: { id: 30497, kind: 'tv', tmdbId: 141, files }, files })}`;
       return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
     }
     throw new Error(`Unexpected URL: ${url}`);
@@ -408,8 +408,8 @@ test('episode results include every matching DFLIX file option', async () => {
     const { getStreams } = require('./dflix.js');
     const streams = await getStreams('141', 'tv', 1, 1);
     assert.deepEqual(streams.map((stream) => stream.url), [
-      'https://dflix.live/api/stream/286098.mkv',
-      'https://dflix.live/api/stream/386098.mp4'
+      'https://dflix.live/api/stream/386098.mp4',
+      'https://dflix.live/api/stream/286098.mkv'
     ]);
   } finally {
     global.fetch = realFetch;
@@ -436,7 +436,7 @@ test('an exact first candidate returns without loading lower-ranked detail pages
       requestedDetails.push(id);
       const tmdbId = id === 4592 ? 603 : id;
       const files = [{ id: 9000 + id, titleId: id, container: 'mp4' }];
-      const payload = `0:${JSON.stringify({ title: { id, tmdbId, files }, files })}`;
+      const payload = `0:${JSON.stringify({ title: { id, kind: 'movie', tmdbId, files }, files })}`;
       return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
     }
     throw new Error(`Unexpected URL: ${url}`);
@@ -453,10 +453,11 @@ test('an exact first candidate returns without loading lower-ranked detail pages
   }
 });
 
-test('candidate details are checked with bounded parallelism', async () => {
+test('candidate details are checked sequentially and stop after the first verified fallback', async () => {
   const realFetch = global.fetch;
   let active = 0;
   let maxActive = 0;
+  const requestedDetails = [];
   global.fetch = async (url) => {
     if (String(url).includes('/v1/metadata/movie/603')) {
       return { ok: true, json: async () => ({
@@ -471,13 +472,14 @@ test('candidate details are checked with bounded parallelism', async () => {
     const match = String(url).match(/\/title\/(\d+)$/);
     if (match) {
       const id = Number(match[1]);
+      requestedDetails.push(id);
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 15));
       active -= 1;
-      const tmdbId = id === 4 ? 603 : id;
+      const tmdbId = id === 2 ? 603 : id;
       const files = [{ id: 4000 + id, titleId: id, container: 'mp4' }];
-      const payload = `0:${JSON.stringify({ title: { id, tmdbId, files }, files })}`;
+      const payload = `0:${JSON.stringify({ title: { id, kind: 'movie', tmdbId, files }, files })}`;
       return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
     }
     throw new Error(`Unexpected URL: ${url}`);
@@ -487,9 +489,9 @@ test('candidate details are checked with bounded parallelism', async () => {
     delete require.cache[require.resolve('./dflix.js')];
     const { getStreams } = require('./dflix.js');
     const streams = await getStreams('603', 'movie', null, null);
-    assert.equal(streams[0].url, 'https://dflix.live/api/stream/4004.mp4');
-    assert.ok(maxActive > 1, `expected parallel detail requests, saw ${maxActive}`);
-    assert.ok(maxActive <= 4, `expected bounded concurrency, saw ${maxActive}`);
+    assert.equal(streams[0].url, 'https://dflix.live/api/stream/4002.mp4');
+    assert.equal(maxActive, 1);
+    assert.deepEqual(requestedDetails, [1, 2]);
   } finally {
     global.fetch = realFetch;
   }
@@ -548,7 +550,7 @@ test('title details are refreshed on each provider call', async () => {
     if (String(url) === 'https://dflix.live/title/4592') {
       detailFetches += 1;
       const files = [{ id: 6000 + detailFetches, titleId: 4592, container: 'mp4' }];
-      const payload = `0:${JSON.stringify({ title: { id: 4592, tmdbId: 603, files }, files })}`;
+      const payload = `0:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}`;
       return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
     }
     throw new Error(`Unexpected URL: ${url}`);
@@ -599,6 +601,477 @@ test('client requests to the Worker never send an authorization credential', asy
     const streams = await getStreams('603', 'movie', null, null);
     assert.equal(streams.length, 1);
     assert.match(streams[0].title, /HTTP 502/i);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX verifies a localized exact candidate before launching original-title fallback', async () => {
+  const realFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (url) => {
+    const value = String(url);
+    seen.push(value);
+    if (value.endsWith('/v1/metadata/movie/496243')) {
+      return { ok: true, json: async () => ({
+        id: 496243, type: 'movie', title: 'Parasite', originalTitle: '기생충', year: 2019
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      const parsed = new URL(value);
+      assert.equal(parsed.searchParams.get('limit'), '20');
+      assert.equal(parsed.searchParams.get('q'), 'Parasite');
+      return { ok: true, json: async () => ({
+        results: [{ id: 3206, kind: 'movie', title: 'Parasite', year: 2019 }]
+      }) };
+    }
+    if (value.endsWith('/title/3206')) {
+      const files = [{ id: 3210, titleId: 3206, container: 'mkv', quality: '1080p' }];
+      const payload = `0:${JSON.stringify({ title: { id: 3206, kind: 'movie', tmdbId: 496243, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('496243', 'movie', null, null);
+    assert.equal(streams.length, 1);
+    assert.equal(seen.filter((url) => url.includes('/api/search?')).length, 1);
+    assert.ok(!seen.some((url) => url.includes(encodeURIComponent('기생충'))));
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX does not launch alternate searches or details after its request budget expires', async () => {
+  const realFetch = global.fetch;
+  const realNow = Date.now;
+  let now = 0;
+  let searches = 0;
+  Date.now = () => now;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/496243')) {
+      return { ok: true, json: async () => ({
+        id: 496243, type: 'movie', title: 'Parasite', originalTitle: '기생충', year: 2019
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      searches += 1;
+      if (searches > 1) throw new Error('late alternate search launched');
+      now = 25000;
+      return { ok: true, json: async () => ({ results: [] }) };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('496243', 'movie', null, null);
+    assert.deepEqual(streams, []);
+    assert.equal(searches, 1);
+  } finally {
+    Date.now = realNow;
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX rejects invalid identifiers, media types, and TV coordinates before network I/O', async () => {
+  const realFetch = global.fetch;
+  let networkCalls = 0;
+  global.fetch = async () => {
+    networkCalls += 1;
+    throw new Error('network must not be reached');
+  };
+  const invalidCalls = [
+    ['0', 'movie', null, null],
+    ['01', 'movie', null, null],
+    ['603x', 'movie', null, null],
+    ['TT0133093', 'movie', null, null],
+    ['tt123', 'movie', null, null],
+    ['603', 'series', null, null],
+    ['1396', 'tv', '1', 1],
+    ['1396', 'tv', [1], 1],
+    ['1396', 'tv', true, 1],
+    ['1396', 'tv', 1, '1'],
+    ['1396', 'tv', 1, 0]
+  ];
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    for (const args of invalidCalls) {
+      const streams = await getStreams(...args);
+      assert.equal(streams.length, 1);
+      assert.match(streams[0].name, /DFLIX error:/);
+    }
+    assert.equal(networkCalls, 0);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX preserves non-Latin title identity when ranking localized candidates', async () => {
+  const realFetch = global.fetch;
+  const requestedDetails = [];
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/372058')) {
+      return { ok: true, json: async () => ({
+        id: 372058, type: 'movie', title: '君の名は。', originalTitle: 'Your Name.', year: 2016
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      const query = new URL(value).searchParams.get('q');
+      assert.equal(query, '君の名は。');
+      return { ok: true, json: async () => ({ results: [
+        { id: 1, kind: 'movie', title: '天気の子', year: 2016 },
+        { id: 2, kind: 'movie', title: '君の名は。', year: 2016 }
+      ] }) };
+    }
+    const match = value.match(/\/title\/(\d+)$/);
+    if (match) {
+      const id = Number(match[1]);
+      requestedDetails.push(id);
+      const files = [{ id: 9002, titleId: id, container: 'mkv' }];
+      const payload = `0:${JSON.stringify({ title: { id, kind: 'movie', tmdbId: 372058, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('372058', 'movie', null, null);
+    assert.equal(streams.length, 1);
+    assert.deepEqual(requestedDetails, [2]);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX rejects malformed search candidates before detail requests', async () => {
+  const realFetch = global.fetch;
+  let detailRequests = 0;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({ results: [
+        null,
+        [],
+        { id: '4592', kind: 'movie', title: 'The Matrix', year: 1999 },
+        { id: 0, kind: 'movie', title: 'The Matrix', year: 1999 },
+        { id: 4592, kind: 'movie', title: [], year: 1999 },
+        { id: 4593, kind: 'movie', title: 'The Matrix', year: '1999' },
+        { id: 4594, kind: 'series', title: 'The Matrix', year: 1999 }
+      ] }) };
+    }
+    if (value.includes('/title/')) {
+      detailRequests += 1;
+      throw new Error('malformed candidate reached detail');
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams, []);
+    assert.equal(detailRequests, 0);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX validates, deduplicates, normalizes, and quality-sorts file variants', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      const files = [
+        { id: 1, titleId: 4592, container: 'mp4', quality: '720p', size: 1073741824 },
+        { id: 2, titleId: 4592, container: 'mkv', quality: '2160p', codec: 'x265', audioLang: 'English', size: 4294967296 },
+        { id: 3, titleId: 4592, container: 'webm', quality: '1080p', codec: 'av1' },
+        { id: 2, titleId: 4592, container: 'mkv', quality: 'duplicate' },
+        { id: '4', titleId: 4592, container: 'mkv', quality: '1080p' },
+        { id: 5, titleId: '4592', container: 'mkv', quality: '1080p' },
+        { id: 6, titleId: 4592, container: 'exe', quality: '1080p' },
+        { id: 7, titleId: 4592, container: 'mkv', quality: [], codec: {}, audioLang: [], size: '999' }
+      ];
+      const payload = `0:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams.map((stream) => stream.url), [
+      'https://dflix.live/api/stream/2.mkv',
+      'https://dflix.live/api/stream/3.webm',
+      'https://dflix.live/api/stream/1.mp4',
+      'https://dflix.live/api/stream/7.mkv'
+    ]);
+    assert.equal(streams[0].title, '2160p · MKV · HEVC · Audio: English');
+    assert.equal(streams[0].size, '4.00 GB');
+    assert.equal(streams[1].title, '1080p · WEBM · AV1');
+    assert.equal(streams[3].title, 'MKV');
+    assert.equal(streams[3].size, null);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX rejects coercible or wrong-kind identity fields in detail payloads', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      const files = [{ id: 1, titleId: 4592, container: 'mp4' }];
+      const payload = `0:${JSON.stringify({ title: { id: '4592', kind: 'tv', tmdbId: '603', files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams, []);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX rejects detail identity when media kind is missing', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      const files = [{ id: 1, titleId: 4592, container: 'mp4' }];
+      const payload = `1:${JSON.stringify({ title: { id: 4592, tmdbId: 603, files }, files })}`;
+      return { ok: true, text: async () => payload };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    assert.deepEqual(await getStreams('603', 'movie', null, null), []);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX caps output at 100 after sorting so late high-quality variants survive', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      const files = Array.from({ length: 105 }, (_, index) => ({
+        id: index + 1,
+        titleId: 4592,
+        container: 'mkv',
+        quality: index === 104 ? '2160p' : '720p'
+      }));
+      const payload = `0:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.equal(streams.length, 100);
+    assert.equal(streams[0].url, 'https://dflix.live/api/stream/105.mkv');
+    assert.equal(new Set(streams.map((stream) => stream.url)).size, 100);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX consumes raw RSC detail payloads with exact identity and file metadata', async () => {
+  const realFetch = global.fetch;
+  let detailCalls = 0;
+  global.fetch = async (url, options = {}) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      detailCalls += 1;
+      assert.equal(options.headers.RSC, '1');
+      assert.equal(options.headers.Accept, 'text/x-component');
+      const files = [{ id: 4599, titleId: 4592, container: 'mp4', quality: '1080p', size: 2789679820 }];
+      return { ok: true, text: async () => `1:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}\n` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0].size, '2.60 GB');
+    assert.equal(detailCalls, 1);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX falls back once to HTML when raw RSC detail is malformed', async () => {
+  const realFetch = global.fetch;
+  const accepts = [];
+  global.fetch = async (url, options = {}) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      accepts.push(options.headers.Accept);
+      if (options.headers.RSC === '1') return { ok: true, text: async () => 'malformed RSC' };
+      const files = [{ id: 4599, titleId: 4592, container: 'mp4' }];
+      const payload = `0:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files }, files })}`;
+      return { ok: true, text: async () => `<script>self.__next_f.push([1,${JSON.stringify(payload)}])</script>` };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.equal(streams.length, 1);
+    assert.deepEqual(accepts, ['text/x-component', 'text/html,application/xhtml+xml']);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX does not launch HTML detail fallback after the request deadline', async () => {
+  const realFetch = global.fetch;
+  const realNow = Date.now;
+  let now = 0;
+  let detailCalls = 0;
+  Date.now = () => now;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      detailCalls += 1;
+      now = 25000;
+      return { ok: true, text: async () => 'malformed RSC' };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams, []);
+    assert.equal(detailCalls, 1);
+  } finally {
+    Date.now = realNow;
+    global.fetch = realFetch;
+  }
+});
+
+test('DFLIX ignores malformed file arrays that precede an exact-owned array', async () => {
+  const realFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.endsWith('/v1/metadata/movie/603')) {
+      return { ok: true, json: async () => ({
+        id: 603, type: 'movie', title: 'The Matrix', originalTitle: 'The Matrix', year: 1999
+      }) };
+    }
+    if (value.includes('/api/search?')) {
+      return { ok: true, json: async () => ({
+        results: [{ id: 4592, kind: 'movie', title: 'The Matrix', year: 1999 }]
+      }) };
+    }
+    if (value.endsWith('/title/4592')) {
+      const malformed = [{ id: 1, titleId: '4592', container: 'mkv' }];
+      const exact = [{ id: 2, titleId: 4592, container: 'mp4', quality: '1080p' }];
+      const payload = `1:${JSON.stringify({ title: { id: 4592, kind: 'movie', tmdbId: 603, files: malformed }, files: exact })}`;
+      return { ok: true, text: async () => payload };
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    delete require.cache[require.resolve('./dflix.js')];
+    const { getStreams } = require('./dflix.js');
+    const streams = await getStreams('603', 'movie', null, null);
+    assert.deepEqual(streams.map((stream) => stream.url), ['https://dflix.live/api/stream/2.mp4']);
   } finally {
     global.fetch = realFetch;
   }
